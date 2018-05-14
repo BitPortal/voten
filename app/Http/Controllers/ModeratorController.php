@@ -30,44 +30,27 @@ class ModeratorController extends Controller
     }
 
     /**
-     * returns cateogry's mods with their role.
+     * Returns channel's list of moderators with their role.
      *
-     * @param \Illuminate\Http\Request $request
+     * @param Channel $channel
      *
      * @return \Illuminate\Support\Collection
      */
-    public function index(Request $request)
+    public function index(Channel $channel)
     {
-        $this->validate($request, [
-            'channel_name' => 'required_without:channel_id|exists:channels,name',
-            'channel_id'   => 'required_without:channel_name|exists:channels,id',
-        ]);
-
-        if ($request->filled('channel_name')) {
-            return ModeratorResource::collection(
-                Channel::where('name', $request->channel_name)->first()->moderators
-            );
-        }
-
-        return ModeratorResource::collection(
-            Channel::findOrFail($request->channel_id)->moderators
-        );
+        return ModeratorResource::collection($channel->moderators);
     }
 
     /**
      * Approves the submission so it no longer can be reported.
      *
-     * @param \Illuminate\Http\Request $request
+     * @param integer $submission
      *
      * @return response
      */
-    public function approveSubmission(Request $request)
+    public function approveSubmission($submission_id)
     {
-        $this->validate($request, [
-            'submission_id' => 'required|integer',
-        ]);
-
-        $submission = Submission::withTrashed()->findOrFail($request->submission_id);
+        $submission = Submission::withTrashed()->findOrFail($submission_id);
 
         abort_unless($this->mustBeModerator($submission->channel_id), 403);
 
@@ -80,28 +63,22 @@ class ModeratorController extends Controller
 
         // remove all the reports related to this model
         Report::where([
-            'reportable_id'   => $request->submission_id,
+            'reportable_id'   => $submission->id,
             'reportable_type' => 'App\Submission',
         ])->delete();
 
-        return response('Submission approved', 200);
+        return res(200, 'Submission approved');
     }
 
     /**
      * softDeletes the submission so that the owner can see it but it won't be visible in the channel.
      *
-     * @param \Illuminate\Http\Request $request
+     * @param Submission $submission
      *
      * @return response
      */
-    public function disapproveSubmission(Request $request)
+    public function disapproveSubmission(Submission $submission)
     {
-        $this->validate($request, [
-            'submission_id' => 'required|integer',
-        ]);
-
-        $submission = $this->getSubmissionById($request->submission_id);
-
         abort_unless($this->mustBeModerator($submission->channel_id), 403);
 
         $submission->update([
@@ -111,64 +88,57 @@ class ModeratorController extends Controller
 
         event(new SubmissionWasDeleted($submission, false));
 
-        return response('Submission deleted successfully', 200);
+        return res(200, 'Submission deleted successfully');
     }
 
     /**
      * Approves the comment so it no longer can be reported.
      *
-     * @param \Illuminate\Http\Request $request
+     * @param integer $comment
      *
      * @return response
      */
-    public function approveComment(Request $request)
+    public function approveComment($comment_id)
     {
-        $this->validate($request, [
-            'comment_id' => 'required|integer',
-        ]);
+        $comment = Comment::withTrashed()->findOrFail($comment_id);
+        
+        abort_unless($this->mustBeModerator($comment->channel_id), 403);
 
-        abort_unless($this->mustBeModerator(Comment::withTrashed()->where('id', $request->comment_id)->value('channel_id')), 403);
-
-        DB::table('comments')->where('id', $request->comment_id)->update([
+        DB::table('comments')->where('id', $comment->id)->update([
             'approved_at' => Carbon::now(),
             'deleted_at'  => null,
         ]);
 
         // remove all the reports related to this model
         Report::where([
-            'reportable_id'   => $request->comment_id,
+            'reportable_id'   => $comment->id,
             'reportable_type' => 'App\Comment',
         ])->delete();
 
-        return response('Comment approved successfully', 200);
+        return res(200, 'Comment approved successfully');
     }
 
     /**
      * softDeletes the comment so that the owner can see it but it won't be visible in the channel.
      *
-     * @param \Illuminate\Http\Request $request
+     * @param Comment $comment
      *
      * @return response
      */
-    public function disapproveComment(Request $request)
+    public function disapproveComment(Comment $comment)
     {
-        $this->validate($request, [
-            'comment_id' => 'required|integer',
-        ]);
-
-        $comment = $this->getCommentById($request->comment_id);
-        $submission = $this->getSubmissionById($comment->submission_id);
-
         abort_unless($this->mustBeModerator($comment->channel_id), 403);
+        
+        $submission = $this->getSubmissionById($comment->submission_id);
 
         event(new CommentWasDeleted($comment, $submission, false));
 
-        DB::table('comments')->where('id', $request->comment_id)->update([
+        DB::table('comments')->where('id', $comment->id)->update([
             'approved_at' => null,
             'deleted_at'  => Carbon::now(),
         ]);
 
-        return response('Comment deleted successfully', 200);
+        return res(200, 'Comment disapproved successfully');
     }
 
     /**
@@ -178,27 +148,24 @@ class ModeratorController extends Controller
      *
      * @return response
      */
-    public function store(Request $request)
+    public function store(Request $request, Channel $channel)
     {
         $this->validate($request, [
-            'channel_id' => 'required|exists:channels,id',
-            'username'   => ['required', 'exists:users', new NotSelfUsername()],
+            'user_id'   => 'required|exists:users,id',
             'role'       => 'in:administrator,moderator',
         ]);
 
-        $channel = $this->getChannelById(request('channel_id'));
-
-        abort_unless($this->mustBeAdministrator($channel->id), 403);
-
-        $user = User::where('username', $request->username)->firstOrFail();
-
-        $channel->moderators()->attach($user->id, [
+        $channel->moderators()->attach(request('user_id'), [
             'role' => $request->role,
         ]);
 
-        $user->notify(new BecameModerator($channel, $request->role));
+        $new_moderator = User::find(request('user_id'));
 
-        $this->updateChannelMods($channel->id, $user->id);
+        $new_moderator->notify(
+            new BecameModerator($channel, $request->role)
+        );
+
+        $this->updateChannelMods($channel->id, request('user_id'));
 
         return res(201, 'New moderator added successfully');
     }
@@ -208,23 +175,12 @@ class ModeratorController extends Controller
      *
      * @return response
      */
-    public function destroy(Request $request)
+    public function destroy(Channel $channel, User $user)
     {
-        $this->validate($request, [
-            'channel_name' => 'required',
-            'username'     => 'required',
-        ]);
+        $channel->moderators()->detach($user->id);
 
-        $channel = Channel::where('name', $request->channel_name)->firstOrFail();
+        $this->updateChannelMods($channel->id, $user->id);
 
-        abort_unless($this->mustBeAdministrator($channel->id) && $request->username != Auth::user()->username, 403);
-
-        $user_id = User::where('username', $request->username)->value('id');
-
-        $channel->moderators()->detach($user_id);
-
-        $this->updateChannelMods($channel->id, $user_id);
-
-        return response($request->username.' is no longer a moderator at #'.$request->channel_name, 200);
+        return res(200, $user->username.' is no longer a moderator at #'. $channel->name);
     }
 }

@@ -462,13 +462,12 @@ export default {
 
         postComment() {
             axios
-                .post('/comments', {
+                .post(`/submissions/${this.submission}/comments`, {
                     parent_id: this.parent,
-                    submission_id: this.submission,
                     body: this.temp
                 })
                 .then((response) => {
-                    Store.state.comments.upVotes.push(response.data.data.id);
+                    Store.state.comments.likes.push(response.data.data.id);
                     this.$eventHub.$emit('newComment', response.data.data);
 
                     this.clear();

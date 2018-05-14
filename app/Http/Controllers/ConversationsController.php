@@ -9,6 +9,7 @@ use Auth;
 use DB;
 use Illuminate\Http\Request;
 use App\Traits\CachableUser;
+use App\User;
 
 class ConversationsController extends Controller
 {
@@ -32,19 +33,15 @@ class ConversationsController extends Controller
     }
 
     /**
-     * The reciever has opened the conversation, so let's broadcast "ConversationRead".
+     * The receiver has opened the conversation, so let's broadcast "ConversationRead".
      *
-     * @param \Illuminate\Http\Request $request
+     * @param User $user
      *
      * @return Response
      */
-    public function broadcastConversaionAsRead(Request $request)
+    public function broadcastConversationAsRead(User $user)
     {
-        $this->validate($request, [
-            'user_id' => ['required', 'integer', new NotSelfId(), 'exists:users,id'],
-        ]);
-
-        event(new ConversationRead($request->user_id, Auth::id()));
+        event(new ConversationRead($user->id, Auth::id()));
 
         return res(200, '"seen" event broadcasted successfully. ');
     }
@@ -54,45 +51,13 @@ class ConversationsController extends Controller
      *
      * @return response
      */
-    public function destroy(Request $request)
+    public function destroy(User $user)
     {
-        $this->validate($request, [
-            'user_id' => ['required', 'integer', new NotSelfId(), 'exists:users,id'],
-        ]);
-
         DB::table('conversations')->where([
             'user_id'    => Auth::id(),
-            'contact_id' => $request->user_id,
+            'contact_id' => $user->id,
         ])->delete();
 
         return res(200, 'left conversation successfully');
-    }
-
-    /**
-     * toggles contact to the blockedUsers list.
-     *
-     * @return response
-     */
-    public function block(Request $request)
-    {
-        $this->validate($request, [
-            'user_id' => ['required', 'integer', new NotSelfId()],
-        ]);
-
-        $user = Auth::user();
-
-        $result = $user->hiddenUsers()->toggle($request->user_id);
-
-        // subscibed
-        if ($result['attached']) {
-            $this->updateBlockedUsers($user->id, $request->user_id, true);
-
-            return res(200, 'User blocked.');
-        }
-
-        // unsubscribed
-        $this->updateBlockedUsers($user->id, $request->user_id, false);
-
-        return res(200, 'User unblocked. ');
     }
 }

@@ -18,61 +18,30 @@ export default {
     props: ['list', 'full'],
 
     computed: {
-        upvoted: {
+        type() {
+            return this.list.type;
+        }, 
+
+        liked: {
             get() {
                 try {
-                    return Store.state.submissions.upVotes.indexOf(this.list.id) !== -1 ? true : false;
+                    return Store.state.submissions.likes.indexOf(this.list.id) !== -1 ? true : false;
                 } catch (error) {
-                    return false; 
+                    return false;
                 }
             },
 
             set() {
-                if (this.currentVote === 'upvote') {
-                    this.list.upvotes_count--;
-                    let index = Store.state.submissions.upVotes.indexOf(this.list.id);
-                    Store.state.submissions.upVotes.splice(index, 1);
+                if (this.liked) {
+                    this.list.likes_count--;
+                    let index = Store.state.submissions.likes.indexOf(this.list.id);
+                    Store.state.submissions.likes.splice(index, 1);
 
                     return;
                 }
-
-                if (this.currentVote === 'downvote') {
-                    this.list.downvotes_count--;
-                    let index = Store.state.submissions.downVotes.indexOf(this.list.id);
-                    Store.state.submissions.downVotes.splice(index, 1);
-                }
-
-                this.list.upvotes_count++;
-                Store.state.submissions.upVotes.push(this.list.id);
-            }
-        },
-
-        downvoted: {
-            get() {
-                try {
-                    return Store.state.submissions.downVotes.indexOf(this.list.id) !== -1 ? true : false;
-                } catch (error) {
-                    return false; 
-                }
-            },
-
-            set() {
-                if (this.currentVote === 'downvote') {
-                    this.list.downvotes_count--;
-                    let index = Store.state.submissions.downVotes.indexOf(this.list.id);
-                    Store.state.submissions.downVotes.splice(index, 1);
-
-                    return;
-                }
-
-                if (this.currentVote === 'upvote') {
-                    this.list.upvotes_count--;
-                    let index = Store.state.submissions.upVotes.indexOf(this.list.id);
-                    Store.state.submissions.upVotes.splice(index, 1);
-                }
-
-                this.list.downvotes_count++;
-                Store.state.submissions.downVotes.push(this.list.id);
+            
+                this.list.likes_count++;
+                Store.state.submissions.likes.push(this.list.id);
             }
         },
 
@@ -81,7 +50,7 @@ export default {
                 try {
                     return Store.state.bookmarks.submissions.indexOf(this.list.id) !== -1 ? true : false;
                 } catch (error) {
-                    return false; 
+                    return false;
                 }
             },
 
@@ -98,11 +67,7 @@ export default {
         },
 
         points() {
-            let total = this.list.upvotes_count - this.list.downvotes_count;
-
-            if (total < 0) return 0;
-
-            return total;
+            return this.list.likes_count; 
         },
 
         /**
@@ -112,15 +77,6 @@ export default {
          */
         owns() {
             return auth.id == this.list.author.id;
-        },
-
-        /**
-         * The current vote type. It's being used to optimize the voing request on the server-side.
-         *
-         * @return mixed
-         */
-        currentVote() {
-            return this.upvoted ? 'upvote' : this.downvoted ? 'downvote' : null;
         },
 
         date() {
@@ -141,6 +97,44 @@ export default {
          */
         nsfw() {
             return this.list.nsfw && !Store.settings.feed.include_nsfw_submissions;
+        },
+
+        owns() {
+            return auth.id === this.list.author.id;  
+        }, 
+
+        showApprove() {
+            return (
+                !this.list.approved_at &&
+                (Store.state.moderatingAt.indexOf(this.list.channel_id) != -1 || meta.isVotenAdministrator) &&
+                !this.owns
+            );
+        },
+
+        showDisapprove() {
+            return !this.list.disapproved_at && (Store.state.moderatingAt.indexOf(this.list.channel_id) != -1 || meta.isVotenAdministrator) && !this.owns;
+        },
+
+        showNSFW() {
+            return (
+                (this.owns ||
+                    Store.state.moderatingAt.indexOf(this.list.channel_id) != -1 ||
+                    meta.isVotenAdministrator) &&
+                !this.list.nsfw
+            );
+        },
+
+        showSFW() {
+            return (
+                (this.owns ||
+                    Store.state.moderatingAt.indexOf(this.list.channel_id) != -1 ||
+                    meta.isVotenAdministrator) &&
+                this.list.nsfw
+            );
+        },
+
+        showRemoveTumbnail() {
+            return this.owns && this.list.content.thumbnail ? true : false;
         }
     },
 
@@ -154,9 +148,7 @@ export default {
             this.list.approved_at = this.now();
 
             axios
-                .post('/approve-submission', {
-                    submission_id: this.list.id
-                })
+                .post(`/submissions/${this.list.id}/approve`)
                 .catch(() => {
                     this.list.approved_at = null;
                 });
@@ -177,11 +169,9 @@ export default {
         markAsSFW() {
             this.list.nsfw = false;
 
-            axios
-                .delete(`/submissions/${this.list.id}/nsfw`)
-                .catch(() => {
-                    this.list.nsfw = true;
-                });
+            axios.delete(`/submissions/${this.list.id}/nsfw`).catch(() => {
+                this.list.nsfw = true;
+            });
         },
 
         /**
@@ -197,56 +187,23 @@ export default {
             });
         },
 
-        voteUp: _.debounce(
+        like: _.debounce(
             function() {
                 if (this.isGuest) {
                     this.mustBeLogin();
                     return;
                 }
+               
+                this.liked =! this.liked; 
 
-                axios.post('/upvote-submission', {
-                    submission_id: this.list.id,
-                    previous_vote: this.currentVote
-                });
-
-                if (this.currentVote === 'upvote') {
-                    this.upvoted = false;
-                    return;
-                } else if (this.currentVote === 'downvote') {
-                    this.downvoted = false;
-                }
-
-                this.upvoted = true;
+                axios.post(`/submissions/${this.list.id}/like`).catch(error => {
+                    this.liked =! this.liked; 
+                });  
             },
             200,
             { leading: true, trailing: false }
         ),
-
-        voteDown: _.debounce(
-            function() {
-                if (this.isGuest) {
-                    this.mustBeLogin();
-                    return;
-                }
-
-                axios.post('/downvote-submission', {
-                    submission_id: this.list.id,
-                    previous_vote: this.currentVote
-                });
-
-                if (this.currentVote === 'downvote') {
-                    this.downvoted = false;
-                    return;
-                } else if (this.currentVote === 'upvote') {
-                    this.upvoted = false;
-                }
-
-                this.downvoted = true;
-            },
-            200,
-            { leading: true, trailing: false }
-        ),
-
+        
         bookmark: _.debounce(
             function() {
                 if (this.isGuest) {
@@ -256,13 +213,9 @@ export default {
 
                 this.bookmarked = !this.bookmarked;
 
-                axios
-                    .post('/bookmark-submission', {
-                        id: this.list.id
-                    })
-                    .catch(() => {
-                        this.bookmarked = !this.bookmarked;
-                    });
+                axios.post(`/submissions/${this.list.id}/bookmark`).catch(() => {
+                    this.bookmarked = !this.bookmarked;
+                });
             },
             200,
             { leading: true, trailing: false }
@@ -276,6 +229,19 @@ export default {
 
             Store.modals.reportSubmission.show = true;
             Store.modals.reportSubmission.submission = this.list;
+        },
+      
+        hide() {
+            if (this.isGuest) {
+                this.mustBeLogin();
+                return;
+            }
+
+            this.hidden = true;
+
+            axios.post(`/submissions/${this.list.id}/hide`).catch(() => {
+                this.hidden = false;
+            });
         },
 
         showPhotoViewer(image) {

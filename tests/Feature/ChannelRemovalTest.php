@@ -10,6 +10,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
+use Illuminate\Support\Facades\Auth;
 
 class ChannelRemovalTest extends TestCase
 {
@@ -34,21 +35,9 @@ class ChannelRemovalTest extends TestCase
         $moderator = create(User::class, ['username' => 'admin']);
 
         // create moderators for channels
-        $this->json('POST', '/api/moderators', [
-            'channel_id' => $inactive_channel1->id,
-            'username' => 'admin',
-            'role' => 'administrator',
-        ])->assertStatus(201);
-        $this->json('POST', '/api/moderators', [
-            'channel_id' => $inactive_channel2->id,
-            'username' => 'admin',
-            'role' => 'administrator',
-        ])->assertStatus(201);
-        $this->json('POST', '/api/moderators', [
-            'channel_id' => $active_channel->id,
-            'username' => 'admin',
-            'role' => 'administrator',
-        ])->assertStatus(201);
+        $inactive_channel1->moderators()->attach(Auth::id(), ['role' => 'administrator']);
+        $inactive_channel2->moderators()->attach(Auth::id(), ['role' => 'administrator']);
+        $active_channel->moderators()->attach(Auth::id(), ['role' => 'administrator']); 
 
         create(Submission::class, [
             'channel_name' => $active_channel->name, 'channel_id' => $active_channel->id, 'created_at' => now()->subMonth(),
@@ -77,5 +66,49 @@ class ChannelRemovalTest extends TestCase
         $this->json('GET', '/api/admin/channels/inactive')
             ->assertStatus(200)
             ->assertJsonCount(2, 'data');
+    }
+
+    /** @test */
+    public function a_voten_administrator_can_delete_a_channel()
+    {
+        $channel = create(Channel::class);
+        $submission = create(Submission::class, ['channel_name' => $channel->name, 'channel_id' => $channel->id]);
+        
+        $this->assertDatabaseHas('channels', [
+            'id' => $channel->id,
+            'name' => $channel->name,
+        ]);
+        $this->assertDatabaseHas('submissions', [
+            'id' => $submission->id,
+            'slug' => $submission->slug,
+        ]);
+
+        // assert current password is sent correctly 
+        $this->json("post", "/api/channels/{$channel->id}/destroy", [
+            'password' => 'not_correct_password'
+        ])  
+            ->assertStatus(422)
+            ->assertJson([
+                "message" => "The given data was invalid.",
+                "errors" => [
+                    "password" => [
+                        "Password is incorrect.",
+                    ]
+                ],
+            ]);
+
+        // assert destroy 
+        $this->json("post", "/api/channels/{$channel->id}/destroy", [
+            'password' => 'password'
+        ])->assertStatus(200);
+
+        $this->assertDatabaseMissing('channels', [
+            'id' => $channel->id,
+            'name' => $channel->name,
+        ]);
+        $this->assertDatabaseMissing('submissions', [
+            'id' => $submission->id,
+            'slug' => $submission->slug,
+        ]);
     }
 }

@@ -17,11 +17,16 @@ class Comment extends Model
      * @var array
      */
     protected $fillable = [
-        'body', 'upvotes', 'rate', 'downvotes', 'submission_id', 'level', 'parent_id', 'channel_id', 'user_id', 'edited_at',
+        'body', 'likes', 'rate', 'submission_id', 'level', 'parent_id', 'channel_id', 'user_id', 'edited_at',
     ];
 
     protected $with = [
         'owner', 'children',
+    ];
+
+    protected $dates = [
+        'approved_at',
+        'deleted_at'
     ];
 
     /**

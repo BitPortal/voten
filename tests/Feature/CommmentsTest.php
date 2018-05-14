@@ -2,18 +2,18 @@
 
 namespace Tests\Feature;
 
-use Tests\TestCase;
-use Illuminate\Foundation\Testing\WithFaker;
-use Illuminate\Foundation\Testing\RefreshDatabase;
 use App\Channel;
-use App\Submission;
-use Illuminate\Support\Facades\Event;
+use App\Comment;
 use App\Events\CommentWasCreated;
-use Illuminate\Support\Facades\Queue;
+use App\Submission;
+use App\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Event;
+use Tests\TestCase;
 
 class CommmentsTest extends TestCase
 {
-    use RefreshDatabase; 
+    use RefreshDatabase;
 
     /** @test */
     public function can_post_comment_to_submission()
@@ -24,16 +24,91 @@ class CommmentsTest extends TestCase
 
         $submission = create(Submission::class);
 
-        $this->json('POST', '/api/comments', [
-            'submission_id' => $submission->id, 
-            'body' => 'some cool comment which BTW supports **markdown**'
-        ])->assertStatus(201);
+        $this->json("post", "/api/submissions/{$submission->id}/comments", [
+            'submission_id' => $submission->id,
+            'body' => 'some cool comment which BTW supports **markdown**',
+        ])
+            ->assertStatus(201);
 
         $this->assertDatabaseHas('comments', [
-            'submission_id' => $submission->id, 
-            'body' => 'some cool comment which BTW supports **markdown**'
+            'submission_id' => $submission->id,
+            'body' => 'some cool comment which BTW supports **markdown**',
         ]);
 
         Event::assertDispatched(CommentWasCreated::class, 1);
+    }
+
+    /** @test */
+    public function a_channel_moderator_can_approve_a_comment()
+    {
+        $comment_author = create(User::class);
+        $comment = create(Comment::class, [
+            'user_id' => $comment_author->id,
+        ]);
+
+        $this->json("post", "/api/comments/{$comment->id}/approve")->assertStatus(401);
+
+        $this->signInViaPassport($comment_author);
+
+        $this->json("post", "/api/comments/{$comment->id}/approve")->assertStatus(403);
+
+        $channel = Channel::find($comment->channel_id);
+        $channel->moderators()->attach($moderator = create(User::class), ['role' => 'moderator']);
+
+        $this->signInViaPassport($moderator);
+
+        $this->json("post", "/api/comments/{$comment->id}/approve")->assertStatus(200);
+
+        $this->assertDatabaseHas('comments', [
+            'id' => $comment->id,
+            'approved_at' => now(),
+        ]);
+    }
+
+    /** @test */
+    public function a_channel_moderator_can_disapprove_a_comment()
+    {
+        $comment_author = create(User::class);
+        $comment = create(Comment::class, [
+            'user_id' => $comment_author->id,
+        ]);
+
+        $this->json("post", "/api/comments/{$comment->id}/disapprove")->assertStatus(401);
+
+        $this->signInViaPassport($comment_author);
+
+        $this->json("post", "/api/comments/{$comment->id}/disapprove")->assertStatus(403);
+
+        $channel = Channel::find($comment->channel_id);
+        $channel->moderators()->attach($moderator = create(User::class), ['role' => 'moderator']);
+
+        $this->signInViaPassport($moderator);
+
+        $this->json("post", "/api/comments/{$comment->id}/disapprove")->assertStatus(200);
+
+        $this->assertDatabaseHas('comments', [
+            'id' => $comment->id,
+            'approved_at' => null,
+            'deleted_at' => now(),
+        ]);
+    }
+
+    /** @test */
+    public function a_user_can_get_comments_of_a_submissions()
+    {
+        $submission = create(Submission::class);
+
+        factory(Comment::class, 10)->create(['submission_id' => $submission->id]);
+
+        $this->signInViaPassport();    
+
+        $this->json("get", "/api/submissions/{$submission->id}/comments")
+            ->assertStatus(200)
+            ->assertJsonCount(10, 'data');
+        
+        // get it as a guest: 
+        $this->json("get", "/api/guest/submissions/{$submission->id}/comments")
+            ->assertStatus(200)
+            ->assertJsonCount(10, 'data');
     }
 }

@@ -7,9 +7,9 @@ use App\Submission;
 use App\Traits\CachableChannel;
 use App\Traits\CachableSubmission;
 use App\Traits\CachableUser;
-use Auth;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 
 class HomeController extends Controller
 {
@@ -24,9 +24,7 @@ class HomeController extends Controller
      */
     public function homePage()
     {
-        $submissions = SubmissionResource::collection(
-            $this->guestHome(request())
-        );
+        $submissions = $this->guestFeed(request());
 
         return view('home', compact('submissions'));
     }
@@ -42,21 +40,16 @@ class HomeController extends Controller
     {
         $this->validate($request, [
             'page' => 'required|integer|min:1',
-            'exclude_upvoted_submissions' => 'boolean', 
-            'exclude_downvoted_submissions' => 'boolean', 
+            'exclude_liked_submissions' => 'boolean', 
             'exclude_bookmarked_submissions' => 'boolean',
-            'include_nsfw_submissions' => 'boolean', 
+            'include_nsfw_submissions' => 'nullable|boolean',
+            'filter' => 'nullable|in:all,moderating,bookmarked,by-bookmarked-users,subscribed,All,Moderating,Bookmarked,By-bookmarked-users,Subscribed',
+            'submissions_type' => 'nullable|in:gif,Gif,GIF,link,Link,image,Image,text,Text,all,All', 
+            'sort' => 'nullable|in:hot,Hot,new,New,rising,Rising'
         ]);
-
-        if (!Auth::check()) {
-            return SubmissionResource::collection(
-                $this->guestHome($request)
-            );
-        }
-
         $submissions = (new Submission())->newQuery();
 
-        switch ($request->filter) {
+        switch (strtolower($request->input('filter', 'subscribed'))) {
             case 'all':
                 // guest what? we don't have to do anything :|
                 break;
@@ -72,31 +65,30 @@ class HomeController extends Controller
             case 'by-bookmarked-users':
                 $submissions->whereIn('user_id', $this->bookmarkedUsers());
                 break;
-
-            default: // subscribed
-                $submissions->whereIn('channel_id', $this->subscriptions());
+            
+            case 'subscribed':
+                $submissions->whereIn('channel_id', Auth::user()->subscriptions()->pluck('id')); 
                 break;
         }
 
-        switch ($request->type) {
-            case 'GIF':
+        switch (strtolower($request->input('submissions_type', 'All'))) {
+            case 'gif':
                 $submissions->where('type', 'gif');
                 break;
 
-            case 'Link':
+            case 'link':
                 $submissions->where('type', 'link');
                 break;
 
-            case 'Image':
+            case 'image':
                 $submissions->where('type', 'img');
                 break;
 
-            case 'Text':
+            case 'text':
                 $submissions->where('type', 'text');
                 break;
-
-            default: // subscribed
-                // guest what? we don't have to do anything :|
+            
+            case 'all':
                 break;
         }
 
@@ -106,23 +98,19 @@ class HomeController extends Controller
         // exclude user's hidden submissions
         $submissions->whereNotIn('id', $this->hiddenSubmissions());
 
-        if (! $request->include_nsfw_submissions) {
+        if (! $request->input('include_nsfw_submissions', 0)) {
             $submissions->where('nsfw', false);
         } 
 
-        if ($request->exclude_upvoted_submissions) {
-            $submissions->whereNotIn('id', $this->submissionUpvotesIds());
+        if ($request->input('exclude_liked_submissions', 0)) {
+            $submissions->whereNotIn('id', $this->submissionLikesIds());
         }
 
-        if ($request->exclude_downvoted_submissions) {
-            $submissions->whereNotIn('id', $this->submissionDownvotesIds());
-        }
-
-        if ($request->exclude_bookmarked_submissions) {
+        if ($request->input('exclude_bookmarked_submissions', 0)) {
             $submissions->whereNotIn('id', $this->bookmarkedSubmissions());
         }
 
-        switch ($request->sort) {
+        switch (strtolower($request->input('sort', 'hot'))) {
             case 'new':
                 $submissions->orderBy('created_at', 'desc');
                 break;
@@ -131,12 +119,13 @@ class HomeController extends Controller
                 $submissions->where('created_at', '>=', Carbon::now()->subHour())
                     ->orderBy('rate', 'desc');
                 break;
-
-            default: // 'hot'
+            
+            case 'hot':
                 $submissions->orderBy('rate', 'desc');
                 break;
         }
 
+        // Prevent duplicate news: 
         $submissions->groupBy('url');
 
         return SubmissionResource::collection(
@@ -145,13 +134,13 @@ class HomeController extends Controller
     }
 
     /**
-     * returns submisisons from default channels. by time we're gonna improve this.
+     * Returns submissions from default channels. by time we're gonna improve this.
      *
      * @param \Illuminate\Http\Request $request
      *
      * @return \Illuminate\Support\Collection
      */
-    protected function guestHome(Request $request)
+    public function guestFeed(Request $request)
     {
         $submissions = (new Submission())->newQuery();
 
@@ -175,8 +164,11 @@ class HomeController extends Controller
                 break;
         }
 
+        // Prevent duplicate news:         
         $submissions->groupBy('url');
-
-        return $submissions->simplePaginate(15);
+        
+        return SubmissionResource::collection(
+            $submissions->simplePaginate(15)
+        );
     }
 }

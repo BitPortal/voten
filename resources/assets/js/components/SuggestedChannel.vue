@@ -46,11 +46,11 @@ export default {
     },
 
     created() {
-        this.getChannel();
+        this.get();
     },
 
     methods: {
-        getChannel() {
+        get() {
             axios.get('/suggested-channel').then((response) => {
                 // We got nothing to suggest.
                 if (_.isUndefined(response.data.data)) return;
@@ -69,9 +69,7 @@ export default {
             Store.state.subscribedChannels.push(this.channel);
             Store.state.subscribedAt.push(this.channel.id);
 
-            axios.post('/subscribe', {
-                channel_id: this.channel.id
-            });
+            axios.post(`/channels/${this.channel.id}/subscribe`);
 
             this.visible = false;
         }

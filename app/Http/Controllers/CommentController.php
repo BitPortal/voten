@@ -15,6 +15,7 @@ use App\Traits\CachableUser;
 use Auth;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use App\Submission;
 
 class CommentController extends Controller
 {
@@ -29,22 +30,21 @@ class CommentController extends Controller
      * Stores the submitted comment.
      *
      * @param \Illuminate\Http\Request $request
+     * @param Submission $submission
      *
      * @return \Illuminate\Support\Collection $comment
      */
-    public function store(Request $request)
+    public function store(Request $request, Submission $submission)
     {
         $this->validate($request, [
             'body'          => 'required|string|max:5000',
             'parent_id'     => 'nullable|integer',
-            'submission_id' => 'required|integer|exists:submissions,id',
         ]);
 
         if ($this->tooEarlyToCreate(3)) {
             return res(429, "Looks like you're over doing it. You can't submit more than 3 comments per minute");
         }
-
-        $submission = $this->getSubmissionById($request->submission_id);
+        
         $author = Auth::user();
         $parentComment = (!is_null($request->parent_id) && $request->parent_id > 0) ? $this->getCommentById($request->parent_id) : null;
 
@@ -56,14 +56,13 @@ class CommentController extends Controller
             'level'         => isset($parentComment) ? ($parentComment->level + 1) : 0, 
             'submission_id' => $submission->id,
             'rate'          => firstRate(),
-            'upvotes'       => 1,
-            'downvotes'     => 0,
+            'likes'       => 1,
             'edited_at'     => null,
         ]);
 
         event(new CommentWasCreated($comment, $submission, $author, $parentComment));
 
-        $this->firstVote($author, $comment->id);
+        $this->firstLike($author, $comment->id);
 
         // save a query by setting the author:
         $comment->owner = $author;
@@ -78,7 +77,7 @@ class CommentController extends Controller
      *
      * @return mixed
      */
-    public function index(Request $request, $submission_id)
+    public function index(Request $request, Submission $submission)
     {
         $this->validate($request, [
             'sort'          => 'nullable|in:hot,new',
@@ -87,37 +86,31 @@ class CommentController extends Controller
 
         if ($request->sort == 'new') {
             return CommentResource::collection(
-                Comment::where([
-                    ['submission_id', $submission_id],
-                    ['parent_id', 0],
-                ])->orderBy('created_at', 'desc')->simplePaginate(20)
+                $submission->comments()->where('parent_id', 0)->orderBy('created_at', 'desc')->simplePaginate(20)
             );
         }
 
         // Sort by default which is 'hot'
         return CommentResource::collection(
-            Comment::where([
-                ['submission_id', $submission_id],
-                ['parent_id', 0],
-            ])->orderBy('rate', 'desc')->simplePaginate(20)
+            $submission->comments()->where('parent_id', 0)->orderBy('rate', 'desc')->simplePaginate(20)
         );
     }
 
     /**
-     * Up-votes on comment.
+     * Likes comment.
      *
      * @param collection $user
      * @param int        $comment_id
      *
      * @return void
      */
-    protected function firstVote($user, $comment_id)
+    protected function firstLike($user, $comment_id)
     {
         try {
-            $user->commentUpvotes()->attach($comment_id, ['ip_address' => getRequestIpAddress()]);
-            $upvotes = $this->commentUpvotesIds($user->id);
-            array_push($upvotes, $comment_id);
-            $this->updateCommentUpvotesIds($user->id, $upvotes);
+            $user->commentLikes()->attach($comment_id, ['ip_address' => getRequestIpAddress()]);
+            $likes = $this->commentLikesIds($user->id);
+            array_push($likes, $comment_id);
+            $this->updateCommentLikesIds($user->id, $likes);
         } catch (Exception $exception) {
             app('sentry')->captureException($exception);
         }

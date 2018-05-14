@@ -111,18 +111,11 @@
 						Comments
 					</router-link>
 
-					<router-link :to="'/@' + $route.params.username + '/upvoted-submissions'"
+					<router-link :to="'/@' + $route.params.username + '/liked-submissions'"
 					             class="nav-item is-tab"
 					             active-class="is-active"
 					             v-if="isAuth">
-						Upvoted
-					</router-link>
-
-					<router-link :to="'/@' + $route.params.username + '/downvoted-submissions'"
-					             class="nav-item is-tab"
-					             active-class="is-active"
-					             v-if="isAuth">
-						Downvoted
+						Liked Submissions 
 					</router-link>
 				</div>
 
@@ -200,7 +193,7 @@ export default {
 
     methods: {
         banUser() {
-			Store.modals.banUser.username = Store.page.user.temp.username; 
+			Store.modals.banUser.user = Store.page.user.temp; 
 			Store.modals.banUser.show = true; 
         },
 
@@ -214,9 +207,7 @@ export default {
                 this.bookmarked = !this.bookmarked;
 
                 axios
-                    .post('/bookmark-user', {
-                        id: Store.page.user.temp.id
-                    })
+                    .post(`/users/${Store.page.user.temp.id}/bookmark`)
                     .catch(() => {
                         this.bookmarked = !this.bookmarked;
                     });

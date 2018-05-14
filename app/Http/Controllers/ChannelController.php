@@ -31,17 +31,18 @@ class ChannelController extends Controller
      */
     public function __construct()
     {
-        $this->middleware('auth', ['except' => ['show', 'submissions', 'get', 'moderators', 'fillStore', 'redirect']]);
+        $this->middleware('auth', ['except' => ['show', 'submissions', 'submissionsByChannelName', 'get', 'getByName', 'moderators', 'fillStore', 'redirect']]);
     }
 
     /**
-     * gets submissions.
+     * Returns submissions.
      *
      * @param string $channel
+     * @param string $sort
      *
      * @return \Illuminate\Support\Collection
      */
-    protected function getSubmissions($channel, $sort)
+    protected function getSubmissions($channel, $sort = 'hot')
     {
         $submissions = (new Submission())->newQuery();
 
@@ -66,9 +67,8 @@ class ChannelController extends Controller
                 $submissions->where('created_at', '>=', Carbon::now()->subHour())
                     ->orderBy('rate', 'desc');
                 break;
-
-            default:
-                // hot
+            
+            case 'hot':
                 $submissions->orderBy('rate', 'desc');
                 break;
         }
@@ -81,18 +81,38 @@ class ChannelController extends Controller
      *
      * @param \Illuminate\Http\Request $request
      *
-     * @return \Illuminate\Support\Collection
+     * @return SubmissionResource
      */
-    public function submissions(Request $request)
+    public function submissionsByChannelName(Request $request)
     {
         $this->validate($request, [
-            'sort'         => 'in:hot,new,rising|nullable|max:25',
+            'sort'         => 'in:hot,new,rising|nullable',
             'page'         => 'integer|min:1',
             'channel_name' => 'required|exists:channels,name',
         ]);
 
         return SubmissionResource::collection(
             $this->getSubmissions($request->channel_name, $request->sort)
+        );
+    }
+
+    /**
+     * Get submissions API with ajax calls.
+     *
+     * @param \Illuminate\Http\Request $request
+     * @param integer $channel
+     *
+     * @return SubmissionResource
+     */
+    public function submissions(Request $request, Channel $channel)
+    {
+        $this->validate($request, [
+            'sort'         => 'nullable|in:hot,new,rising',
+            'page'         => 'integer|min:1',
+        ]);
+
+        return SubmissionResource::collection(
+            $this->getSubmissions($channel->name, strtolower($request->input('sort', 'hot')))
         );
     }
 
@@ -118,11 +138,21 @@ class ChannelController extends Controller
     }
 
     /**
+     * Returns all the necessary information to fill the channelStore on front-end.
+     *
+     * @return Collection
+     */
+    public function getById(Channel $channel)
+    {
+        return new ChannelResource($channel);
+    }
+    
+    /**
      * Returns all the nesseccary information to fill the channelStore on front-end.
      *
      * @return Collection
      */
-    public function get(Request $request)
+    public function getByName(Request $request)
     {
         $this->validate($request, [
             'name' => 'required_without:id|exists:channels',
@@ -155,14 +185,17 @@ class ChannelController extends Controller
         ]);
 
         if (!$this->mustHaveMinimumXp(10) && !$this->mustBeWhitelisted()) {
-            return response('During beta, channel creation requires a minimum of 10 xp points.
-            Either do a bit of activity or contact administrators to lift the limits for your account.', 403);
+            return res(
+                403, 
+                'During beta, channel creation requires a minimum of 10 xp points.
+                Either do a bit of activity or contact administrators to lift the limits for your account.'
+            );
         }
 
         $tooEarly = $this->tooEarlyToCreate();
 
         if ($tooEarly != false) {
-            return response("Looks like you're over doing it. You can create another channel in ".$tooEarly.' seconds. Thank you for being patient.', 500);
+            return res(423, "Looks like you're over doing it. You can create another channel in ".$tooEarly.' seconds. Thank you for being patient.');
         }
 
         $channel = Channel::create([
@@ -175,7 +208,7 @@ class ChannelController extends Controller
 
         $this->setInitialUserToChannelRoles(Auth::user(), $channel);
 
-        return $channel;
+        return new ChannelResource($channel);
     }
 
     /**
@@ -234,18 +267,13 @@ class ChannelController extends Controller
      *
      * @return response
      */
-    public function patch(Request $request)
+    public function patch(Request $request, Channel $channel)
     {
         $this->validate($request, [
-            'id'          => 'required|exists:channels',
             'description' => 'required|max:230|string',
             'cover_color' => 'required|in:Dark Blue,Blue,Red,Dark,Pink,Dark Green,Bright Green,Purple,Gray,Orange',
             'nsfw'        => 'required|boolean',
         ]);
-
-        $channel = $this->getChannelById(request('id'));
-
-        abort_unless($this->mustBeAdministrator($channel->id), 403);
 
         $channel->update([
             'description' => $request->description,
@@ -256,36 +284,6 @@ class ChannelController extends Controller
         event(new ChannelWasUpdated($channel));
 
         return res(200, 'The channel has been successfully updated');
-    }
-
-    /**
-     * Searches channels. Mostly used for submiting new submissions.
-     *
-     * @param \Illuminate\Http\Request $request
-     *
-     * @return \Illuminate\Support\Collection
-     */
-    public function getChannels(Request $request)
-    {
-        $this->validate($request, [
-            'name' => 'required|alpha_num|max:25',
-        ]);
-
-        return Channel::where('name', 'like', '%'.$request->name.'%')
-            ->orderBy('subscribers', 'desc')
-            ->select('name')->take(100)->get()->pluck('name');
-    }
-
-    /**
-     * redirects old channel URLs (/c/channel/hot) to the new one (/c/channel). This is just to
-     * to prevent dead URLS and also to respect our old users who shared their channels on
-     * social media to support us. To them!
-     *
-     * @return redirect
-     */
-    public function redirect($channel)
-    {
-        return redirect('/c/'.$channel);
     }
 
     /**

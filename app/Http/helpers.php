@@ -67,19 +67,18 @@ if (!function_exists('rate')) {
     /**
      * Calculates the rate for sorting by hot.
      *
-     * @param int       $upvotes
-     * @param int       $downvotes
+     * @param int       $likes
      * @param timestamp $created
      *
      * @return float
      */
-    function rate($upvotes, $downvotes, $created)
+    function rate($likes, $created)
     {
         $startTime = 1473696439; // strtotime('2016-09-12 16:07:19')
         $created = strtotime($created);
         $timeDiff = $created - $startTime;
 
-        $x = $upvotes - $downvotes;
+        $x = $likes;
 
         if ($x > 0) {
             $y = 1;

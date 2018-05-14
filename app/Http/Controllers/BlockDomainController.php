@@ -20,15 +20,12 @@ class BlockDomainController extends Controller
      *
      * @return Collection $blockedDomain
      */
-    public function storeAsChannelModerator(Request $request)
+    public function storeAsChannelModerator(Request $request, Channel $channel)
     {
         $this->validate($request, [
             'domain'      => 'required|url',
-            'channel_id'  => 'required|exists:channels,id',
             'description' => 'nullable|string|max:5000',
         ]);
-
-        $channel = $this->getChannelById(request('channel_id'));
 
         $blockedDomain = BlockedDomain::create([
             'channel'     => $channel->name,
@@ -66,18 +63,12 @@ class BlockDomainController extends Controller
     /**
      * Returns all the domains that are blocked for submitting(url type submission) to this channel.
      *
-     * @param \Illuminate\Http\Request $request
+     * @param \Channel $channel
      *
-     * @return \Illuminate\Support\Collection
+     * @return BlockedDomainResource
      */
-    public function indexAsChannelModerator(Request $request)
+    public function indexAsChannelModerator(Channel $channel)
     {
-        $this->validate($request, [
-            'channel_id' => 'required|exists:channels,id',
-        ]);
-
-        $channel = $this->getChannelById(request('channel_id'));
-
         return BlockedDomainResource::collection(
             BlockedDomain::where('channel', $channel->name)
                 ->orderBy('created_at', 'desc')
@@ -88,11 +79,9 @@ class BlockDomainController extends Controller
     /**
      * Returns all the domains that are blocked for submitting(url type submission) to this channel.
      *
-     * @param \Illuminate\Http\Request $request
-     *
-     * @return \Illuminate\Support\Collection
+     * @return BlockedDomainResource
      */
-    public function indexVotenAdministrator(Request $request)
+    public function indexAsVotenAdministrator()
     {
         return BlockedDomainResource::collection(
             BlockedDomain::where('channel', 'all')
@@ -104,40 +93,38 @@ class BlockDomainController extends Controller
     /**
      * Unblock.
      *
-     * @param \Illuminate\Http\Request $request
+     * @param Channel $channel
+     * @param string $domain
      *
      * @return response
      */
-    public function destroyAsChannelModerator(Request $request)
+    public function destroyAsChannelModerator(Channel $channel, $domain)
     {
-        $this->validate($request, [
-            'domain'     => 'required',
-            'channel_id' => 'required|exists:channels,id',
-        ]);
+        $blockedDomain = BlockedDomain::where([
+            ['channel', $channel->name], 
+            ['domain', $domain]
+        ])->firstOrFail();
 
-        $channel = $this->getChannelById(request('channel_id'));
+        $blockedDomain->delete(); 
 
-        BlockedDomain::where('domain', $request->domain)
-            ->where('channel', $channel->name)
-            ->delete();
-
-        return res(200, 'Domain unblocked successfully. ');
+        return res(200, "{$domain} is no longer blacklisted at #{$channel->name}. ");
     }
 
     /**
      * Unblock.
      *
-     * @param \Illuminate\Http\Request $request
+     * @param string $domain
      *
      * @return response
      */
-    public function destroyAsVotenAdministrator(Request $request)
+    public function destroyAsVotenAdministrator($domain)
     {
-        $this->validate($request, [
-            'domain' => 'required',
-        ]);
+        abort_unless(
+            BlockedDomain::where('domain', $domain)->where('channel', 'all')->exists()
+            , 404
+        ); 
 
-        BlockedDomain::where('domain', $request->domain)
+        BlockedDomain::where('domain', $domain)
             ->where('channel', 'all')
             ->delete();
 

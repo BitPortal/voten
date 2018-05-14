@@ -138,9 +138,7 @@ export default {
                 this.bookmarked = !this.bookmarked;
 
                 axios
-                    .post('/bookmark-channel', {
-                        id: this.list.id
-                    })
+                    .post(`/channels/${this.list.id}/bookmark`)
                     .catch(() => {
                         this.bookmarked = !this.bookmarked;
                     });
@@ -154,9 +152,7 @@ export default {
                 this.subscribed = !this.subscribed;
 
                 axios
-                    .post('/subscribe', {
-                        channel_id: this.list.id
-                    })
+                    .post(`/channels/${this.list.id}/subscribe`)
                     .catch(() => {
                         this.subscribed = !this.subscribed;
                     });

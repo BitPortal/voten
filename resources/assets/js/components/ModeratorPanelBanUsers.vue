@@ -1,62 +1,69 @@
 <template>
-    <section>
-        <h3 class="dotted-title">
+	<section>
+		<h3 class="dotted-title">
 			<span>
 				Ban Users
 			</span>
-        </h3>
+		</h3>
 
-        <p>
-            Please use this tool as the last solution for dealing with spammers. 
-        </p>
+		<p>
+			Please use this tool as the last solution for dealing with spammers.
+		</p>
 
-        <el-form label-position="top" label-width="10px">
-            <el-form-item label="Username">
-                <el-select
-                        v-model="username"
-                        filterable
-                        remote
-                        placeholder="Search by username..."
-                        :remote-method="search"
-                        loading-text="Loading..."
-                        :loading="loading">
-                    <el-option
-                            v-for="item in users"
-                            :key="item"
-                            :label="item"
-                            :value="item">
-                    </el-option>
-                </el-select>
-            </el-form-item>
+		<el-form label-position="top"
+		         label-width="10px">
+			<el-form-item label="Username">
+				<el-select v-model="user_id"
+				           filterable
+				           remote
+				           placeholder="Search by username..."
+				           :remote-method="search"
+				           loading-text="Loading..."
+				           :loading="loading">
+					<el-option v-for="item in users"
+					           :key="item.id"
+					           :label="item.username"
+					           :value="item.id">
+					</el-option>
+				</el-select>
+			</el-form-item>
 
-            <el-form-item label="Reason(optional)">
-                <el-input
-                        type="textarea"
-                        placeholder="What did the user wrong? (markdown syntax is supported)"
-                        v-model="description"
-                        :rows="4"
-                >
-                </el-input>
-            </el-form-item>
+			<el-form-item label="Reason(optional)">
+				<el-input type="textarea"
+				          placeholder="What did the user wrong? (markdown syntax is supported)"
+				          v-model="description"
+				          :rows="4">
+				</el-input>
+			</el-form-item>
 
-            <el-form-item label="For how many days (leave 0 for permanent)">
-                <el-input-number v-model="duration" :step="5" :min="0"></el-input-number>
-            </el-form-item>
+			<el-form-item label="For how many days (leave 0 for permanent)">
+				<el-input-number v-model="duration"
+				                 :step="5"
+				                 :min="0"></el-input-number>
+			</el-form-item>
 
-            <el-form-item>
-                <el-button round size="medium" type="danger" v-if="username" @click="banUser" :loading="sending">Ban</el-button>
-            </el-form-item>
-        </el-form>
+			<el-form-item>
+				<el-button round
+				           size="medium"
+				           type="danger"
+				           v-if="user_id"
+				           @click="store"
+				           :loading="sending">Ban</el-button>
+			</el-form-item>
+		</el-form>
 
-
-        <h3 class="dotted-title" v-if="bannedUsers.length">
+		<h3 class="dotted-title"
+		    v-if="bannedUsers.length">
 			<span>
 				All Banned Users
 			</span>
-        </h3>
+		</h3>
 
-        <banned-user v-for="banned in bannedUsers" :list="banned" :key="banned.id" @unban="unban"></banned-user>
-    </section>
+		<banned-user v-for="banned in bannedUsers"
+		             :list="banned"
+		             :key="banned.id"
+		             @unban="destroy"></banned-user>
+	</section>
 </template>
 
 <script>
@@ -71,7 +78,7 @@ export default {
         return {
             loading: false,
             sending: false,
-            username: null,
+            user_id: null,
             description: '',
             duration: 1,
             users: [],
@@ -81,7 +88,7 @@ export default {
     },
 
     created() {
-        this.getBannedUsers();
+        this.index();
     },
 
     methods: {
@@ -96,28 +103,27 @@ export default {
                         keyword: query
                     }
                 })
-                .then((response) => {
-                    this.users = _.map(response.data.data, 'username');
+                .then(response => {
+                    this.users = response.data.data; 
                     this.loading = false;
                 })
-                .catch((error) => {
+                .catch(error => {
                     this.loading = false;
                 });
         }, 600),
 
-        banUser() {
+        store() {
             this.sending = true;
 
             axios
-                .post('/channels/users/bans', {
-                    username: this.username,
+                .post(`/channels/${Store.page.channel.temp.id}/banned-users`, {
+                    user_id: this.user_id,
                     description: this.description,
-                    channel_id: Store.page.channel.temp.id,
                     duration: this.duration
                 })
-                .then((response) => {
+                .then(response => {
                     // add the banned user to the this.bannedUsers array
-                    this.username = '';
+                    this.user_id = null;
                     this.description = '';
                     this.duration = 0;
 
@@ -135,18 +141,11 @@ export default {
          *
          * @return void
          */
-        unban(user_id) {
+        destroy(user_id) {
             axios
-                .delete('/channels/users/bans', {
-                    params: {
-                        user_id,
-                        channel_id: Store.page.channel.temp.id
-                    }
-                })
+                .delete(`/channels/${Store.page.channel.temp.id}/banned-users/${user_id}`)
                 .then(() => {
-                    this.bannedUsers = this.bannedUsers.filter(function(item) {
-                        return item.user_id != user_id;
-                    });
+                    this.bannedUsers = this.bannedUsers.filter(item => item.user_id != user_id);
                 });
         },
 
@@ -155,15 +154,18 @@ export default {
          *
          * @return void
          */
-        getBannedUsers() {
+        index() {
+            app.$Progress.finish();
+            app.$Progress.start();
+
             axios
-                .get('/channels/users/bans', {
-                    params: {
-                        channel_id: Store.page.channel.temp.id
-                    }
-                })
-                .then((response) => {
+                .get(`/channels/${Store.page.channel.temp.id}/banned-users`)
+                .then(response => {
                     this.bannedUsers = response.data.data;
+                    app.$Progress.finish();
+                })
+                .catch(error => {
+                    app.$Progress.fail();
                 });
         }
     }

@@ -4,14 +4,23 @@ namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
+use Illuminate\Support\Facades\Notification;
+use App\Notifications\UsernameMentioned;
 
 class MentionUsersTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function setUp()
+    {
+        parent::setUp(); 
+        
+        Notification::fake();        
+    }
+
     /** @test */
     public function mentioned_users_in_a_comment_are_notified()
-    {
+    {        
         $john = create('App\User', ['username' => 'JohnDoe']);
 
         $this->signInViaPassport($john);
@@ -20,12 +29,11 @@ class MentionUsersTest extends TestCase
 
         $submission = create('App\Submission'); 
 
-        $this->json('POST', '/api/comments', [
-            'body' => 'Hello @JaneDoe Please take a look at this.', 
-            'submission_id' => $submission->id 
+        $this->json('POST', "/api/submissions/{$submission->id}/comments", [
+            'body' => 'Hello @JaneDoe Please take a look at this.' 
         ])->assertStatus(201);
 
-        $this->assertCount(1, $jane->notifications);
+        Notification::assertSentTo($jane, UsernameMentioned::class);
     }
     
     /** @test */
@@ -37,11 +45,10 @@ class MentionUsersTest extends TestCase
 
         $submission = create('App\Submission'); 
 
-        $this->json('POST', '/api/comments', [
-            'body' => 'This is @JohnDoe. Nice to meet you', 
-            'submission_id' => $submission->id 
+        $this->json('POST', "/api/submissions/{$submission->id}/comments", [
+            'body' => 'This is @JohnDoe. Nice to meet you'
         ])->assertStatus(201);
 
-        $this->assertCount(0, $john->notifications);
+        Notification::assertNotSentTo($john, UsernameMentioned::class);
     }
 }

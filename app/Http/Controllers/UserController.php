@@ -21,7 +21,7 @@ class UserController extends Controller
 
     public function __construct()
     {
-        $this->middleware('auth', ['except' => ['get', 'submissions', 'comments', 'showSubmissions', 'showComments']]);
+        $this->middleware('auth', ['except' => ['getById', 'getByUsername', 'submissions', 'comments', 'showSubmissions', 'showComments']]);
     }
 
     /**
@@ -75,18 +75,23 @@ class UserController extends Controller
      *
      * @return Collections
      */
-    public function submissions(Request $request)
+    public function submissions(User $user)
+    {
+        return SubmissionResource::collection(
+            $user->submissions()
+                ->withTrashed()
+                ->orderBy('created_at', 'desc')
+                ->simplePaginate(15)
+        );
+    }
+    
+    public function submissionsByUsername(Request $request)
     {
         $this->validate($request, [
-            'username' => 'required_without:id|exists:users',
-            'id'       => 'required_without:username|exists:users',
+            'username' => 'required|exists:users',
         ]);
 
-        if ($request->filled('username')) {
-            $user = User::where('username', $request->username)->firstOrFail();
-        } else {
-            $user = User::findOrFail($request->id);
-        }
+        $user = User::whereUsername(request('username'))->firstOrFail();
 
         return SubmissionResource::collection(
             $user->submissions()
@@ -97,30 +102,16 @@ class UserController extends Controller
     }
 
     /**
-     * Returns every submission that user has upvoted.
+     * Returns every submission that user has liked.
      *
      * @param \Illuminate\Http\Request $request
      *
      * @return Collections
      */
-    public function upVotedSubmissions(Request $request)
+    public function likedSubmissions(Request $request)
     {
         return SubmissionResource::collection(
-            Auth::user()->submissionUpvotes()->simplePaginate(15)
-        );
-    }
-
-    /**
-     * Returns every submission that user has upvoted.
-     *
-     * @param \Illuminate\Http\Request $request
-     *
-     * @return Collections
-     */
-    public function downVotedSubmissions(Request $request)
-    {
-        return SubmissionResource::collection(
-            Auth::user()->submissionDownvotes()->simplePaginate(15)
+            Auth::user()->submissionLikes()->simplePaginate(15)
         );
     }
 
@@ -131,18 +122,22 @@ class UserController extends Controller
      *
      * @return Collection
      */
-    public function comments(Request $request)
+    public function comments(User $user)
+    {
+        return CommentResource::collection(
+            $user->comments()
+                ->withTrashed()
+                ->orderBy('created_at', 'desc')
+                ->simplePaginate(15)
+        );
+    }
+    public function commentsByUsername(Request $request)
     {
         $this->validate($request, [
-            'username' => 'required_without:id|exists:users',
-            'id'       => 'required_without:username|exists:users',
+            'username' => 'required|exists:users',
         ]);
 
-        if ($request->filled('username')) {
-            $user = User::where('username', $request->username)->firstOrFail();
-        } else {
-            $user = User::findOrFail($request->id);
-        }
+        $user = User::whereUsername(request('username'))->firstOrFail();
 
         return CommentResource::collection(
             $user->comments()
@@ -153,30 +148,41 @@ class UserController extends Controller
     }
 
     /**
-     * Returns all the nesseccary info to fill userStore in forn-end.
+     * Get user model using the username. 
      *
      * @param \Illuminate\Http\Request $request
      *
-     * @return JSON
+     * @return UserResource
      */
-    public function get(Request $request)
+    public function getByUsername(Request $request)
     {
         $this->validate($request, [
             'username'   => 'required_without:id|exists:users',
-            'id'         => 'required_without:username|exists:users',
             'with_info'  => 'boolean',
             'with_stats' => 'boolean',
         ]);
 
-        if ($request->filled('username')) {
-            return new UserResource(
-                User::withTrashed()->where('username', $request->username)->first()
-            );
-        }
-
         return new UserResource(
-            User::withTrashed()->where('id', $request->id)->first()
+            User::withTrashed()->where('username', $request->username)->first()
         );
+    }
+
+    /**
+     * Get user model via the id. 
+     *
+     * @param \Illuminate\Http\Request $request
+     * @param integer $user
+     *
+     * @return UserResource
+     */
+    public function getById(Request $request, User $user)
+    {
+        $this->validate($request, [
+            'with_info'  => 'boolean',
+            'with_stats' => 'boolean',
+        ]);
+
+        return new UserResource($user);
     }
 
     /**
@@ -232,19 +238,15 @@ class UserController extends Controller
         DB::table('reports')->where('user_id', $user_id)->delete();
         DB::table('subscriptions')->where('user_id', $user_id)->delete();
         DB::table('hides')->where('user_id', $user_id)->delete();
-        DB::table('votes')->where('user_id', $user_id)->delete();
         DB::table('activities')->where('user_id', $user_id)->delete();
         DB::table('feedbacks')->where('user_id', $user_id)->delete();
-        DB::table('comment_votes')->where('user_id', $user_id)->delete();
         DB::table('photos')->where('user_id', $user_id)->delete();
         DB::table('bookmarks')->where('user_id', $user_id)->delete();
         DB::table('roles')->where('user_id', $user_id)->delete();
         DB::table('conversations')->where('user_id', $user_id)->orWhere('contact_id', $user_id)->delete();
         DB::table('hidden_users')->where('user_id', $user_id)->delete();
-        DB::table('submission_upvotes')->where('user_id', $user_id)->delete();
-        DB::table('submission_downvotes')->where('user_id', $user_id)->delete();
-        DB::table('comment_upvotes')->where('user_id', $user_id)->delete();
-        DB::table('comment_downvotes')->where('user_id', $user_id)->delete();
+        DB::table('submission_likes')->where('user_id', $user_id)->delete();
+        DB::table('comment_likes')->where('user_id', $user_id)->delete();
         DB::table('appointedd_users')->where('user_id', $user_id)->delete();
     }
 }

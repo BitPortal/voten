@@ -31,7 +31,7 @@ class SubmissionController extends Controller
 
     public function __construct()
     {
-        $this->middleware('auth', ['except' => ['get', 'getPhotos', 'show']]);
+        $this->middleware('auth', ['except' => ['getBySlug', 'getPhotos', 'show', 'getById']]);
     }
 
     /**
@@ -124,7 +124,7 @@ class SubmissionController extends Controller
             $this->updateSubmissionIdForUploadedFile($request, $submission->id);
         }
 
-        $this->firstVote($submission->id);
+        $this->firstLike($submission->id);
 
         return new SubmissionResource(
             Submission::find($submission->id)
@@ -186,7 +186,7 @@ class SubmissionController extends Controller
      *
      * @return \Illuminate\Support\Collection
      */
-    public function get(Request $request)
+    public function getBySlug(Request $request)
     {
         $this->validate($request, [
             'slug' => 'required_without:id',
@@ -202,6 +202,18 @@ class SubmissionController extends Controller
         return new SubmissionResource(
             $this->getSubmissionById($request->id)
         );
+    }
+    
+    /**
+     * Returns the submission (even if it's been soft-deleted).
+     *
+     * @param int $submission_id
+     *
+     * @return \Illuminate\Support\Collection
+     */
+    public function getById(Submission $submission)
+    {
+        return new SubmissionResource($submission);
     }
 
     /**
